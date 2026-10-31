@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Buku Tanya</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@700&family=Literata:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--kertas:#EEF2F7;--garis:#CBD6E6;--tinta:#1B2A6B;--margin:#D64545;--stabilo:#FFE66D;--kartu:#fff;--m:clamp(14px,5vw,36px);box-sizing:border-box}
+@media (prefers-color-scheme:dark){:root{--kertas:#14192B;--garis:#262F50;--tinta:#DCE4FF;--margin:#FF7A7A;--stabilo:#6A5700;--kartu:#1D2440}}
+*{box-sizing:inherit}
+html,body{height:100%;margin:0}
+body{background:var(--kertas);color:var(--tinta);font:17px/28px Literata,Georgia,serif;
+  background-image:linear-gradient(var(--garis) 1px,transparent 1px);background-size:100% 28px}
+.page{max-width:760px;height:100%;margin:0 auto;display:flex;flex-direction:column;position:relative;padding-top:env(safe-area-inset-top,0px)}
+.page::before{content:"";position:absolute;top:0;bottom:0;left:var(--m);width:2px;background:var(--margin);opacity:.7;pointer-events:none}
+header{padding:20px 16px 8px calc(var(--m) + 18px)}
+h1{font:700 1.7rem/1.1 "Bricolage Grotesque",system-ui,sans-serif;margin:0;letter-spacing:-.02em}
+#log{flex:1;overflow-y:auto;padding:8px 16px 16px calc(var(--m) + 18px)}
+.m{margin:0 0 28px;white-space:pre-wrap;overflow-wrap:anywhere}
+.u span{background:linear-gradient(transparent 18%,var(--stabilo) 18%,var(--stabilo) 88%,transparent 88%);padding:0 3px;font-weight:600;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.wait{opacity:.55}
+.err{color:var(--margin);font-weight:600}
+.kosong{opacity:.75}
+code{font:.88em ui-monospace,Menlo,Consolas,monospace;background:var(--kartu);padding:0 4px;border:1px solid var(--garis);border-radius:3px}
+pre{margin:8px 0;padding:10px 12px;background:var(--kartu);border:1px solid var(--garis);border-radius:3px;overflow-x:auto;white-space:pre}
+pre code{border:0;padding:0;background:none}
+form{display:flex;gap:10px;align-items:flex-end;padding:10px 16px calc(12px + env(safe-area-inset-bottom,0px)) calc(var(--m) + 18px);background:var(--kertas);border-top:2px solid var(--tinta)}
+textarea{flex:1;resize:none;max-height:168px;min-height:44px;font:inherit;line-height:24px;color:inherit;background:var(--kartu);border:2px solid var(--tinta);border-radius:3px;padding:9px 12px}
+button{font:700 1rem "Bricolage Grotesque",system-ui,sans-serif;min-height:44px;padding:0 18px;background:var(--tinta);color:var(--kertas);border:2px solid var(--tinta);border-radius:3px;cursor:pointer}
+button:disabled{opacity:.45;cursor:wait}
+textarea:focus-visible,button:focus-visible{outline:3px solid var(--margin);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="page">
+  <header><h1>Buku Tanya</h1></header>
+  <main id="log" aria-live="polite"><p class="m kosong" id="kosong">Tulis pertanyaanmu di bawah. Jawaban muncul di halaman ini.</p></main>
+  <form id="f">
+    <textarea id="q" rows="1" placeholder="Tanya apa saja" aria-label="Pertanyaan"></textarea>
+    <button id="send" type="submit">Kirim</button>
+  </form>
+</div>
+<script>
+const log=document.getElementById('log'),box=document.getElementById('q'),btn=document.getElementById('send'),form=document.getElementById('f');
+const hist=[];let busy=false;
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const md=s=>esc(s).replace(/```(?:\w+)?\n?([\s\S]*?)```/g,(_,c)=>'<pre><code>'+c.replace(/\n$/,'')+'</code></pre>')
+  .replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>');
+function add(cls,text){
+  const k=document.getElementById('kosong');if(k)k.remove();
+  const d=document.createElement('p');d.className='m '+cls;
+  if(cls==='u'){const s=document.createElement('span');s.textContent=text;d.append(s)}else d.innerHTML=md(text);
+  log.append(d);log.scrollTop=log.scrollHeight;return d;
+}
+function grow(){box.style.height='auto';box.style.height=Math.min(box.scrollHeight+2,168)+'px'}
+box.addEventListener('input',grow);
+box.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&matchMedia('(hover:hover)').matches){e.preventDefault();form.requestSubmit()}});
+form.addEventListener('submit',async e=>{
+  e.preventDefault();const t=box.value.trim();if(!t||busy)return;
+  busy=true;btn.disabled=true;box.value='';grow();
+  add('u',t);hist.push({role:'user',content:t});
+  const w=add('a wait','Menjawab…');
+  try{
+    const r=await fetch('/.netlify/functions/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:hist.slice(-20)})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.error||'Server bermasalah (kode '+r.status+').');
+    hist.push({role:'assistant',content:d.reply});
+    w.className='m a';w.innerHTML=md(d.reply);
+  }catch(err){hist.pop();box.value=t;grow();w.className='m a err';w.textContent=err.message+' Pesanmu dikembalikan ke kotak, tekan Kirim untuk coba lagi.'}
+  busy=false;btn.disabled=false;log.scrollTop=log.scrollHeight;box.focus();
+});
+</script>
+</body>
+</html>
